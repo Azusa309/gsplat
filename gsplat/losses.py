@@ -309,7 +309,14 @@ def pearson_depth_loss(
         pred_flat = pred_flat[mask_flat]
         gt_flat = gt_flat[mask_flat]
     if pred_flat.numel() < 2:
-        return pred_depth.sum() * 0.0
+        # Keep the zero differentiable without allowing excluded NaN/Inf values
+        # to contaminate the result.
+        safe = torch.where(
+            torch.isfinite(pred_depth), pred_depth, torch.zeros_like(pred_depth)
+        )
+        # Reduce at most one value so a tensor full of very large finite values
+        # cannot overflow before it is multiplied by zero.
+        return safe.reshape(-1)[:1].sum() * 0.0
 
     pred_centered = pred_flat - pred_flat.mean()
     gt_centered = gt_flat - gt_flat.mean()
@@ -353,7 +360,12 @@ def masked_l1(pred: Tensor, gt: Tensor, mask: Tensor) -> Tensor:
         bool_mask = bool_mask.expand_as(abs_diff)
     selected = abs_diff[bool_mask]
     if selected.numel() == 0:
-        return pred.sum() * 0.0
+        # Keep the zero differentiable without allowing excluded NaN/Inf values
+        # to contaminate the result.
+        safe = torch.where(torch.isfinite(pred), pred, torch.zeros_like(pred))
+        # Reduce at most one value so a tensor full of very large finite values
+        # cannot overflow before it is multiplied by zero.
+        return safe.reshape(-1)[:1].sum() * 0.0
     return selected.mean()
 
 

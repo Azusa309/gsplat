@@ -28,6 +28,8 @@ from gsplat.losses import (
     create_ssim_window,
     depth_l1_loss,
     l1_loss,
+    masked_l1,
+    pearson_depth_loss,
     lidar_background_loss,
     lidar_distance_loss,
     lidar_intensity_loss,
@@ -79,6 +81,39 @@ def _assert_loss_grad_close(actual, expected, *, name, atol=0.0, rtol=0.0):
 # ---------------------------------------------------------------------------
 # L1 / MSE
 # ---------------------------------------------------------------------------
+
+
+class TestDegenerateMaskedLosses:
+    @pytest.mark.parametrize(
+        "loss_fn,mask",
+        [
+            (masked_l1, torch.tensor([False, False, False])),
+            (pearson_depth_loss, torch.tensor([False, False, False])),
+            (pearson_depth_loss, torch.tensor([False, False, True])),
+        ],
+    )
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    @pytest.mark.parametrize("bad_kind", ["nan", "inf", "-inf", "large"])
+    def test_nonfinite_or_large_excluded_values_return_differentiable_zero(
+        self, loss_fn, mask, dtype, bad_kind
+    ):
+        bad_value = {
+            "nan": float("nan"),
+            "inf": float("inf"),
+            "-inf": float("-inf"),
+            "large": torch.finfo(dtype).max,
+        }[bad_kind]
+        pred = torch.tensor(
+            [bad_value, bad_value, 2.0], dtype=dtype, requires_grad=True
+        )
+        gt = torch.tensor([1.0, 1.0, 3.0], dtype=dtype, requires_grad=True)
+
+        loss = loss_fn(pred, gt, mask)
+        assert loss.item() == 0.0
+        loss.backward()
+        assert pred.grad is not None
+        assert torch.equal(pred.grad, torch.zeros_like(pred))
+        assert gt.grad is None
 
 
 class TestL1Loss:
